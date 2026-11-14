@@ -55,9 +55,13 @@ class ThinkingPill extends StatefulWidget {
     this.active = false,
     this.streaming = false,
     this.growIn = false,
+    this.meta,
   });
 
   final String reasoning;
+
+  /// Shown after the label, as a role-play shows how long it has thought.
+  final Widget? meta;
 
   /// 模型此刻还在思考(流式中且正文还没开始)。
   final bool active;
@@ -150,6 +154,7 @@ class _ThinkingPillState extends State<ThinkingPill> {
         const SizedBox(width: StreamRow.gap),
         // 标签直接换字,不做淡入淡出:两个词叠在同一个位置上闪一下更难看。
         ThinkingLabel(active ? l10n.chatThinkingActive : l10n.chatThinking, active: active),
+        ?widget.meta,
         if (preview.isNotEmpty) ...[
           const StreamDot(),
           Expanded(
@@ -643,8 +648,17 @@ bool _hasProviderScope(BuildContext context) {
 class _TranslationHolder {
   ReasoningTranslation? controller;
 
+  /// [controller] 开始翻译时的界面语言;界面语言一变,旧译文就不再沿用。
+  String? language;
+
   /// 正在看译文(false = 用户切回了原文)。
   bool showTranslation = false;
+
+  void reset() {
+    controller?.dispose();
+    controller = null;
+    showTranslation = false;
+  }
 
   void dispose() => controller?.dispose();
 }
@@ -707,6 +721,7 @@ class _TranslatableReasoningState extends ConsumerState<_TranslatableReasoning> 
   void _start(CotTranslationLimits limits, ReasoningTranslator translator) {
     final holder = widget.holder;
     final sessionId = ref.read(currentSessionProvider);
+    holder.language = reasoningUiLanguage;
     final controller = holder.controller ??= ReasoningTranslation(
       maxTextChars: limits.maxTextChars,
       translate: (text) => translator(text, limits: limits, sessionId: sessionId),
@@ -720,6 +735,7 @@ class _TranslatableReasoningState extends ConsumerState<_TranslatableReasoning> 
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final holder = widget.holder;
+    if (holder.controller != null && holder.language != reasoningUiLanguage) holder.reset();
     final controller = holder.controller;
     final limits = ref.watch(cotTranslationProvider).value;
     final translator = ref.watch(reasoningTranslatorProvider);

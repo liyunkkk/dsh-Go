@@ -65,6 +65,7 @@ enum SettingsPageId {
   agentPresets,
   phone,
   phoneAppRules,
+  phoneAndroidShell,
   phoneDnd,
   phoneUnlocks,
   webSearch,
@@ -350,6 +351,12 @@ final _pages = <SettingsPageMeta>[
     title: (l) => l.phoneAppRulesTitle,
     parent: SettingsPageId.phone,
     keywords: (l) => l.searchKwAppRules,
+  ),
+  SettingsPageMeta(
+    SettingsPageId.phoneAndroidShell,
+    title: (l) => l.androidShellTitle,
+    parent: SettingsPageId.phone,
+    keywords: (l) => l.androidShellEntryHint,
   ),
   SettingsPageMeta(
     SettingsPageId.phoneDnd,
@@ -770,6 +777,18 @@ abstract final class Spots {
     title: (l) => l.botsPetDisplayWhen,
     keywords: (l) => l.searchKwPetDisplayWhen,
   );
+  static final petOverlayShows = SettingSpot(
+    'pet-overlay-shows',
+    page: SettingsPageId.pets,
+    title: (l) => l.botsPetOverlayShows,
+    keywords: (l) => l.searchKwPetOverlayShows,
+  );
+  static final petOverlayFraming = SettingSpot(
+    'pet-overlay-framing',
+    page: SettingsPageId.pets,
+    title: (l) => l.botsPetOverlayFraming,
+    keywords: (l) => l.searchKwPetOverlayFraming,
+  );
 
   // 界面.
   static final uiMode = SettingSpot(
@@ -783,6 +802,12 @@ abstract final class Spots {
     page: SettingsPageId.interface,
     title: (l) => l.hubHardwareEnterSends,
     keywords: (l) => l.hubHardwareEnterSendsHint,
+  );
+  static final chatSuggestions = SettingSpot(
+    'chat-suggestions',
+    page: SettingsPageId.interface,
+    title: (l) => l.hubChatSuggestions,
+    keywords: (l) => l.searchKwChatSuggestions,
   );
   static final quickPanel = SettingSpot(
     'quick-panel',
@@ -955,6 +980,13 @@ abstract final class Spots {
     altTitle: (l) => l.phoneSafeLeave,
     keywords: (l) => l.searchKwSafeMode,
   );
+  static final workspaceRecovery = SettingSpot(
+    'workspace-recovery',
+    page: SettingsPageId.engine,
+    title: (l) => l.workspaceRecoveryEnable,
+    altTitle: (l) => l.workspaceRecoveryDisable,
+    keywords: (l) => l.searchKwWorkspaceRecovery,
+  );
   static final engineReset = SettingSpot(
     'engine-reset',
     page: SettingsPageId.engine,
@@ -980,6 +1012,13 @@ abstract final class Spots {
     page: SettingsPageId.remote,
     title: (l) => l.remoteAutoConnectOnStartup,
     keywords: (l) => l.searchKwRemoteAutoConnect,
+  );
+
+  static final remoteCompactHistory = SettingSpot(
+    'remote-compact-history',
+    page: SettingsPageId.remote,
+    title: (l) => l.remoteCompactHistory,
+    keywords: (l) => l.searchKwRemoteCompactHistory,
   );
 
   // 引擎参数 and its pages (drawn from the engine's schema).
@@ -1071,8 +1110,11 @@ final _rows = <SettingSpot>[
   Spots.petQuiet,
   Spots.petOutsideApp,
   Spots.petDisplayWhen,
+  Spots.petOverlayShows,
+  Spots.petOverlayFraming,
   Spots.uiMode,
   Spots.hardwareEnterSends,
+  Spots.chatSuggestions,
   Spots.quickPanel,
   Spots.tableTint,
   Spots.webApp,
@@ -1098,10 +1140,12 @@ final _rows = <SettingSpot>[
   Spots.autoStart,
   Spots.autoSafe,
   Spots.safeMode,
+  Spots.workspaceRecovery,
   Spots.engineReset,
   Spots.engineUninstall,
   Spots.addSshHost,
   Spots.remoteAutoConnect,
+  Spots.remoteCompactHistory,
   Spots.subagentDepth,
   Spots.parallelCalls,
   Spots.commandTimeout,
