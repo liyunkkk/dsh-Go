@@ -276,6 +276,8 @@ object PhoneToolCatalog {
                 "command" to str("要执行的命令，例如 id 或 ls /sdcard/Download"),
                 "timeoutMs" to int("超时毫秒，1000–120000，默认 20000"),
             ),
+            listOf("command"),
+        ),
     )
 
     val names: List<String> = tools.map { it.name }
