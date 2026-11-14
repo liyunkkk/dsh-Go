@@ -36,9 +36,16 @@ jobs:
       - name: Install NDK for tawcroot (pinned 28.2.13676358)
         run: |
           SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$SDKM" --licenses > /dev/null 2>&1 || true
-          "$SDKM" --install "ndk;28.2.13676358"
-          ls -d "$ANDROID_HOME/ndk/28.2.13676358"
+          NDK_DIR="$ANDROID_HOME/ndk/28.2.13676358"
+          if [ ! -f "$NDK_DIR/source.properties" ]; then
+            yes | "$SDKM" --licenses > /dev/null 2>&1 || true
+            "$SDKM" --install "ndk;28.2.13676358"
+          fi
+          grep '^Pkg.Revision' "$NDK_DIR/source.properties"
+          # 上游写的是 ANDROID_NDK_HOME 优先；runner 预装的 NDK 会把变量指到别的版本，
+          # 于是 build.py 读到 Pkg.Revision 不匹配就报 "needs NDK"。这里改指到钉死的这一版。
+          echo "ANDROID_NDK_HOME=$NDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$NDK_DIR" >> "$GITHUB_ENV"
 
       - name: Install toolchain deps
         run: |
