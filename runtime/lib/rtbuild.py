@@ -1245,7 +1245,13 @@ def cmd_assemble(args):
     runtime_info = json.loads(args.runtime_info)
     def digest(path):
         with open(path, "rb") as source:
-            return hashlib.file_digest(source, "sha256").hexdigest()
+            # hashlib.file_digest is 3.11+; ubuntu-22.04 runners ship 3.10.
+            if hasattr(hashlib, "file_digest"):
+                return hashlib.file_digest(source, "sha256").hexdigest()
+            h = hashlib.sha256()
+            for chunk in iter(lambda: source.read(1 << 20), b""):
+                h.update(chunk)
+            return h.hexdigest()
     sources = {"ubuntu": digest(args.base), "debs": [digest(p) for p in args.deb or []],
                "python": digest(args.python) if args.python else None}
     upgrade = upgrade_descriptor(abi, runtime_info["ubuntuVersion"], sources["ubuntu"],
