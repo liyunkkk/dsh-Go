@@ -4,6 +4,8 @@ import io.github.ccch1mneyyy.dsh_app.phone.background.Reasons
 import io.github.ccch1mneyyy.dsh_app.phone.skills.PhoneTaskTrace
 import io.github.ccch1mneyyy.dsh_app.phone.skills.PhoneSkillReplaySelections
 import io.github.ccch1mneyyy.dsh_app.phone.skills.PhoneSkillOutcomes
+import java.io.File
+import java.util.concurrent.TimeUnit
 import java.time.ZoneId
 import java.util.concurrent.atomic.AtomicReference
 
@@ -37,7 +39,15 @@ interface PhoneEnv {
      */
     fun beforeHandoff(screen: PhoneScreen, owner: PhoneTasks.Owner): String? = null
     fun sleep(ms: Long) = Thread.sleep(ms)
+
+    /** 终端权限的三档；默认原版（不给终端）。 */
+    fun shellMode(): ShellMode = ShellMode.ORIGINAL
+    /** 进阶模式下用户勾选的命令；空集合等于什么都不让跑。 */
+    fun allowedCommands(): Set<String> = emptySet()
+    fun cacheDir(): File? = null
+    fun sdcardAllowed(): Boolean = false
 }
+
 
 /**
  * Runs the fixed tool set: argument checks, screen-id routing (`s` main / `b` background,
@@ -360,6 +370,7 @@ class PhoneCore(
             if (!current(owner)) return stoppedOut(name)
             // MAIN already excludes other app holders. Resolve again after waiting for it,
             // keeping the originally selected package if its label or launcher has changed.
+            if (name == PhoneToolCatalog.SHELL) return shell(a)
             val refreshMain = name == PhoneToolCatalog.INTENT ||
                 (name == PhoneToolCatalog.OPEN && a.bool("background") != true)
             val call = if (prepared != null && !refreshMain) prepared else when (
@@ -413,6 +424,152 @@ class PhoneCore(
     }
 
     // ── System actions ──────────────────────────────────────────────────────────────
+
+    // ── Terminal ────────────────────────────────────────────────────────────────────
+
+    /**
+     * 一条命令，经 su 跑。输出写临时文件而不是管道——管道 64 KiB 满了子进程会卡住
+     * （logcat -d、dumpsys、find / 都越线）。这一处参照 ouy09103-wq 的 BoundedShell。
+     */
+    private fun shell(a: Args): Out {
+        val mode = env.shellMode()
+        if (mode == ShellMode.ORIGINAL) {
+            return Out(
+                "这个档位没有开启终端能力。请用户在 设置 → 终端权限 里切到「进阶模式」或「高危模式」。",
+                error = true,
+                summary = PhoneToolCatalog.SHELL,
+                decision = "refused:original",
+            )
+        }
+        val command = a.str("command").orEmpty().trim()
+        val shellSummary = command.take(120).replace('\n', ' ')
+        if (command.isEmpty()) {
+            return Out("command 不能为空。", error = true, summary = shellSummary)
+        }
+        if (command.length > MAX_SHELL_CHARS) {
+            return Out(
+                "命令太长（上限 $MAX_SHELL_CHARS 字符）。",
+                error = true,
+                summary = shellSummary,
+            )
+        }
+        when (val v = ShellGuard.judge(mode, command, env.allowedCommands(), env.sdcardAllowed())) {
+            is ShellVerdict.Deny -> return Out(
+                v.reason,
+                error = true,
+                summary = shellSummary,
+                decision = "refused:guard",
+            )
+            is ShellVerdict.Confirm -> return Out(
+                "这条命令要执行脚本（${v.script ?: command}），需要用户在弹窗里确认。把命令内容告诉用户，等他点确认再重试。",
+                error = true,
+                summary = shellSummary,
+                decision = "needs-confirm",
+            )
+            ShellVerdict.Allow -> Unit
+        }
+
+        val timeoutMs = (a.int("timeoutMs")?.toLong() ?: 20_000L).coerceIn(1_000L, 120_000L)
+        val outDir = env.cacheDir() ?: File(System.getProperty("java.io.tmpdir") ?: "/data/local/tmp")
+        val outFile = File(outDir, ".dsh_shell_${System.nanoTime()}.out")
+        val proc = try {
+            ProcessBuilder("su", "-c", command)
+                .redirectErrorStream(true)
+                .redirectOutput(outFile)
+                .redirectInput(ProcessBuilder.Redirect.from(File("/dev/null")))
+                .start()
+        } catch (e: Exception) {
+            return Out(
+                "跑不起来：${e.javaClass.simpleName}${e.message?.let { "：$it" } ?: ""}。这台手机可能没有 root。",
+                error = true,
+                summary = shellSummary,
+            )
+        }
+        val finished = try {
+            proc.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
+        } catch (_: InterruptedException) {
+            false
+        }
+        if (!finished) killTree(proc)
+
+        val raw = try {
+            if (!outFile.exists()) {
+                ""
+            } else if (outFile.length() > MAX_FILE_BYTES) {
+                val head = ByteArray(MAX_FILE_BYTES)
+                val n = outFile.inputStream().use { it.read(head) }
+                String(head, 0, maxOf(n, 0), Charsets.UTF_8) + "\n…（只保留前 $MAX_FILE_BYTES 字节）"
+            } else {
+                outFile.readText()
+            }
+        } catch (_: Exception) {
+            ""
+        } finally {
+            outFile.delete()
+        }
+
+        val body = if (raw.length > MAX_OUTPUT) {
+            raw.take(MAX_OUTPUT) + "\n…（截断到 $MAX_OUTPUT 字符）"
+        } else {
+            raw
+        }
+        val prefix = if (finished) "" else "（超时 ${timeoutMs}ms，已终止）\n"
+        return Out(
+            if (prefix.isEmpty() && body.isBlank()) "（没有输出）" else prefix + body,
+            summary = shellSummary,
+            decision = if (finished) null else "timeout",
+        )
+    }
+
+    /** 先杀子再杀父：destroyForcibly 杀不掉 su 拉起来的子进程。 */
+    private fun killTree(p: Process) {
+        val pid = pidOf(p)
+        if (pid == null) {
+            p.destroyForcibly()
+            return
+        }
+        runCatching {
+            val children = HashMap<Long, MutableList<Long>>()
+            File("/proc").listFiles()?.forEach { d ->
+                val c = d.name.toLongOrNull() ?: return@forEach
+                val stat = runCatching { File(d, "stat").readText() }.getOrNull() ?: return@forEach
+                val parts = stat.substringAfterLast(')').trim().split(' ')
+                val ppid = parts.getOrNull(1)?.toLongOrNull() ?: return@forEach
+                children.getOrPut(ppid) { mutableListOf() }.add(c)
+            }
+            val order = ArrayList<Long>()
+            val queue = ArrayDeque<Long>()
+            queue.add(pid)
+            var depth = 0
+            while (queue.isNotEmpty() && depth < 16) {
+                repeat(queue.size) {
+                    val cur = queue.removeFirst()
+                    order.add(cur)
+                    children[cur]?.let { queue.addAll(it) }
+                }
+                depth++
+            }
+            order.asReversed().forEach { signal(it) }
+        }.onFailure { p.destroyForcibly() }
+    }
+
+    private fun pidOf(p: Process): Long? =
+        Regex("""pid=(\d+)""").find(p.toString())?.groupValues?.get(1)?.toLongOrNull()
+
+    private fun signal(pid: Long) {
+        val sent = runCatching {
+            val m = Class.forName("android.os.Process")
+                .getMethod("sendSignal", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+            m.invoke(null, pid.toInt(), 9)
+            true
+        }.getOrDefault(false)
+        if (!sent) {
+            runCatching {
+                ProcessBuilder("kill", "-9", pid.toString()).start().waitFor(1, TimeUnit.SECONDS)
+            }
+        }
+    }
+
 
     private fun apps(a: Args, owner: PhoneTasks.Owner): Out {
         if (!current(owner)) return stoppedOut("apps")
@@ -1362,6 +1519,10 @@ class PhoneCore(
         summary = summary, decision = "stopped")
 
     companion object {
+        const val MAX_SHELL_CHARS = 4_000
+        const val MAX_OUTPUT = 8_000
+        const val MAX_FILE_BYTES = 1_000_000
+
         internal const val REPLAY = "replay"
         internal const val FOCUS_TEXT = "focus_text"
 

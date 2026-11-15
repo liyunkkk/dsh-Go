@@ -2,6 +2,16 @@
   <b>简体中文</b> · <a href="README.en.md">English</a>
 </p>
 
+> ## ⚠️ 这是原版的修改版本
+>
+> 本仓库是**个人 fork**，在原版 DSH Go 上新增了 **`shell` 工具**（以 root 执行命令）与 **三档终端权限**（原版 / 进阶 / 高危）：由你决定 AI 能执行哪些命令，默认关闭。
+>
+> **进阶模式有白名单与路径保护；高危模式不给任何保护——它可以把手机变砖、删光数据、暴露隐私。**
+>
+> **仅供测试与学习使用。请勿安装在存有重要数据、或你唯一的手机上。**
+>
+> 👉 **原版在这里：[ccch1mneyyy/dsh-go](https://github.com/ccch1mneyyy/dsh-go)**
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/hero-zh-dark.webp">
